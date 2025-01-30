@@ -1,0 +1,17 @@
+{
+  "name": "puzzlebb",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "bench": "bun ./bench.ts",
+    "fuzzy": "bun ./fuzzy-test.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "mitata": "^1.0.33",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {}
+}
