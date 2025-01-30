@@ -1,18 +1,26 @@
 /********************************************************
- * Feasible Puzzle Data Generator
+ * Feasible Puzzle Data Generator with Controllable BX Count
  *
  * Generates 16 lines of 4 words (A/B/AX/BX) such that:
  *   - Each row has exactly 1 X (AX or BX).
- *   - Each column has exactly 4 X total (so 16 total X).
- *   - Each column has at most 1 BX.
+ *   - Each column has exactly 4 X total (16 total X).
+ *   - Each column has at most 1 BX in total, but the number
+ *     of columns that contain a BX can be chosen.
  *   - Each column has at least 4 B.
  *   - Total B across entire grid is between 16 and 20.
+ *
+ *   bxOption ∈ {0,1,2,3,4,"random"}
+ *     - 0..4 means exactly that many total BX across columns.
+ *     - "random" picks a random number in [0..4].
+ *
  * Output lines can be given to the solver; they are guaranteed solvable.
  ********************************************************/
 
 import { splitmix32 } from "../utils/prng";
 
-export function generatePuzzleData(seed?: number): string[] {
+type BXCount = 0 | 1 | 2 | 3 | 4 | "random";
+
+export function generatePuzzleData({ seed, bxCount = "random" }: { seed?: number, bxCount?: BXCount } = {}): string[] {
   const rand = splitmix32(seed ?? (Math.random() * 2 ** 32) >>> 0);
 
   /********************************************************
@@ -31,7 +39,7 @@ export function generatePuzzleData(seed?: number): string[] {
    *         from array `arr` (without replacement).
    ********************************************************/
   function sample<T>(arr: T[], count: number): T[] {
-    // A simple approach: shuffle a copy and take first `count`
+    // Shuffle a copy and take first `count`
     const copy = arr.slice();
     shuffle(copy);
     return copy.slice(0, count);
@@ -44,30 +52,25 @@ export function generatePuzzleData(seed?: number): string[] {
    * 1) Decide how many B's each column will have (4 or 5),
    *    such that the total across columns is in [16..20].
    ********************************************************/
-  // We'll pick each column's B count in [4..5]. That ensures each column
-  // meets "≥4 B." The sum is between 16 and 20.
-  // You can randomize more intricately if desired.
-
   let totalB = 0;
   const BNeeded: number[] = [];
   for (let c = 0; c < numCols; c++) {
-    // pick 4 or 5 with some probability
+    // pick 4 or 5 with ~50% chance
     const b = rand() < 0.5 ? 4 : 5;
     BNeeded.push(b);
     totalB += b;
   }
-  // If you strictly want to ensure sum is <= 20, fine. (We do have at most 20.)
-  // If you want exactly 16..20, this is enough. We might end up with 16..20.
+  // Now each column has BNeeded[c] in [4..5],
+  // so totalB is in [16..20].
 
   /********************************************************
    * 2) Assign exactly 4 X's per column, i.e. 16 total X's.
-   *    Each row has exactly 1 X => We distribute row indices
-   *    among columns.
+   *    Each row has exactly 1 X => distribute row indices
+   *    among the columns.
    ********************************************************/
+  // We'll randomly shuffle [0..15]. The first 4 become
+  // the X-rows for column 0, next 4 for column 1, etc.
   const rowIndices = shuffle(Array.from({ length: numRows }, (_, i) => i));
-  // We'll chunk them into groups of 4 for each column.
-  // The first 4 rows => column 0’s X, next 4 => column 1’s X, etc.
-  // This ensures each column has exactly 4 X and each row has exactly 1 X.
   const XRowsByCol: number[][] = [
     rowIndices.slice(0, 4),
     rowIndices.slice(4, 8),
@@ -76,58 +79,69 @@ export function generatePuzzleData(seed?: number): string[] {
   ];
 
   /********************************************************
-   * 3) For each column, choose exactly 1 row to hold "BX"
-   *    and the other 3 rows get "AX".
-   *    => Each column has at most 1 "BX."
+   * 3) Decide how many columns (out of 4) will contain a BX,
+   *    based on bxOption. Then pick which columns get BX.
    ********************************************************/
+  let numBXColumns: number;
+  if (bxCount === "random") {
+    numBXColumns = Math.floor(rand() * 5); // random integer in [0..4]
+  } else {
+    numBXColumns = bxCount;
+  }
+  // So exactly numBXColumns columns will each have 1 BX
+  // (the other columns have 0 BX).
+  // Ensure 0 <= numBXColumns <= 4
+
+  // Randomly choose which columns get BX
+  const allCols = [0, 1, 2, 3];
+  const chosenColumnsForBX = sample(allCols, numBXColumns);
+
   // We'll store the final arrangement in a 2D array:
-  // solution[r][c] in {A, B, AX, BX} (unshuffled).
+  // solution[r][c] ∈ {A, B, AX, BX}
   const solution: string[][] = Array.from({ length: numRows }, () =>
     Array<string>(numCols).fill(""),
   );
 
+  // For each column:
+  //   - If it's chosen for BX, pick exactly one of its 4 X rows for BX, rest are AX.
+  //   - Otherwise, all 4 X rows get AX.
   for (let c = 0; c < numCols; c++) {
-    // We have 4 row indices for this column's X
-    const theseRows = XRowsByCol[c];
-    // pick 1 row at random to get "BX"
-    const bxRow = theseRows[Math.floor(rand() * theseRows.length)];
-
-    for (let i = 0; i < theseRows.length; i++) {
-      const r = theseRows[i];
-      if (r === bxRow) {
-        solution[r][c] = "BX";
-      } else {
+    const theseRows = XRowsByCol[c]; // 4 rows that contain X in col c
+    if (chosenColumnsForBX.includes(c)) {
+      // pick 1 row for BX
+      const bxRow = theseRows[Math.floor(rand() * theseRows.length)];
+      for (const r of theseRows) {
+        solution[r][c] = (r === bxRow) ? "BX" : "AX";
+      }
+    } else {
+      // all are AX
+      for (const r of theseRows) {
         solution[r][c] = "AX";
       }
     }
   }
 
   /********************************************************
-   * 4) For each column c, we want BNeeded[c] total B's.
-   *    Some are already contributed by "BX" (which is a B).
-   *    The rest we fill from the 12 "non-X" rows in that column
-   *    with "B" or "A".
+   * 4) For each column c, place enough B to reach BNeeded[c].
+   *    Some B's might already come from BX if that column has BX.
+   *    The remaining "non-X" cells get B or A.
    ********************************************************/
   for (let c = 0; c < numCols; c++) {
-    // how many of the 4 X's are "BX" in column c?
+    // how many BX in this column? (0 or 1)
     let bxCount = 0;
     for (let r = 0; r < numRows; r++) {
       if (solution[r][c] === "BX") {
         bxCount++;
       }
     }
-    // so we already have bxCount B's from those "BX"
-    // we need BNeeded[c] - bxCount more B's among the "non-X" cells
+    // we already have bxCount B from those "BX"
     const bToAssign = BNeeded[c] - bxCount;
     if (bToAssign < 0) {
-      // This would mean BNeeded[c] was smaller than the # of BX used,
-      // which can't happen if we only used 1 BX. But let's be safe:
-      throw new Error(
-        "Column BNeeded is less than number of BX assigned. Inconsistent.",
-      );
+      // Should not happen if we only have 0..1 BX in each column
+      throw new Error("Column needs fewer B than we already have from BX. Inconsistent.");
     }
 
-    // among the 16 rows, 4 have X in column c, so 12 remain for potential B or A
+    // among 16 rows, 4 have X in col c => 12 remain for B/A
     const nonXRows: number[] = [];
     for (let r = 0; r < numRows; r++) {
       if (!solution[r][c].includes("X")) {
@@ -135,36 +149,25 @@ export function generatePuzzleData(seed?: number): string[] {
       }
     }
 
-    // pick bToAssign distinct rows out of nonXRows to place "B"
+    // pick bToAssign of those 12 for B, rest are A
     if (bToAssign > nonXRows.length) {
-      throw new Error(
-        "Not enough cells to place required B. Shouldn't happen with these settings.",
-      );
+      throw new Error("Not enough cells for required B. Shouldn't happen with these settings.");
     }
     const chosenBRows = sample(nonXRows, bToAssign);
-    // Mark these chosen cells as "B", the others as "A"
-    const chosenSet = new Set(chosenBRows);
+    const chosenBSet = new Set(chosenBRows);
     for (const r of nonXRows) {
-      solution[r][c] = chosenSet.has(r) ? "B" : "A";
+      solution[r][c] = chosenBSet.has(r) ? "B" : "A";
     }
   }
 
   /********************************************************
-   * 5) Now we have a valid internal arrangement with
-   *    each row's solution[r] = 4 words that satisfy:
-   *    - exactly 1 X per row
-   *    - each column has 4 X, at most 1 BX, at least 4 B
-   *    - total B is sum(BNeeded[c]) which is in [16..20].
-   *
-   * We'll shuffle each row's 4 words to produce the puzzle
-   * input lines (so the solver has to "unscramble" them).
+   * 5) Shuffle each row's 4 words => final puzzle lines
    ********************************************************/
   const puzzleLines: string[] = [];
   for (let r = 0; r < numRows; r++) {
-    // shuffle the row
-    const rowShuffled = shuffle(solution[r]);
-    // join into a line
-    puzzleLines.push(rowShuffled.join(" "));
+    const rowCopy = solution[r].slice();
+    shuffle(rowCopy);
+    puzzleLines.push(rowCopy.join(" "));
   }
 
   return puzzleLines;
