@@ -149,26 +149,57 @@ export function baselineSolver(inputLines: string[]): string[][] {
   // We'll convert (pos, XCapacity, BXCapacity, BCount) into a string key.
   // If we get the same state again, we skip re-solving it.
   //
-  // Or we can do a bit-packed approach. For simplicity, we'll do a string
-  // though it's less memory-efficient.
-  //
   // We'll store memo: Map<string, boolean>, meaning "from this state,
   // can we eventually find a solution?" true/false.
 
   const memo = new Map<string, boolean>();
 
-  function encodeState(pos: number): string {
-    // We'll do: pos|Xcap0Xcap1Xcap2Xcap3|BXcap0...|BCount0...3
-    // Each capacity/bcount turned into a short piece of string, e.g. "X2" => "2" if capacity=2
-    // BCount might be 0..16 => use an underscore + the numeric value
+  /**
+   * Packs (pos, XCapacity, BXCapacity, BCount) into a single integer,
+   * then converts to a base-36 string for memo keys.
+   */
+  function encodeState(
+    pos: number,
+  ): string {
+    // We'll build a 64-bit integer in a JS number (safe up to 2^53).
+    let s = 0;
 
-    // XCapacity is each in [0..4], BXCapacity in [0..1], BCount in [0..16]
-    return [
-      pos,
-      XCapacity.join(","), // e.g. "3,4,1,0"
-      BXCapacity.join(","), // e.g. "1,0,1,1"
-      BCount.join(","), // e.g. "5,3,9,0"
-    ].join("|");
+    // 1) BCount: 5 bits each, col0..3 => total 20 bits.
+    //    We'll store col0 in the lowest 5 bits, col1 in the next 5 bits, etc.
+    //    So the final layout for BCount is (col3 << 15) | (col2 << 10) | (col1 << 5) | (col0).
+    for (let c = 0; c < 4; c++) {
+      // BCount[c] is 0..16 => fits in 5 bits.
+      s |= (BCount[c] & 0x1f) << (5 * c);
+    }
+
+    // Now we have used 20 bits for BCount in 's'.
+
+    // 2) BXCapacity: 4 bits total (1 bit per column).
+    //    We'll put col0 in bit 20, col1 in bit 21, col2 in bit 22, col3 in bit 23
+    let bxPart = 0;
+    for (let c = 0; c < 4; c++) {
+      // BXCapacity[c] is in [0..1]
+      bxPart |= (BXCapacity[c] & 0x1) << c;
+    }
+    s |= bxPart << 20;
+
+    // 3) XCapacity: each col is [0..4] => 3 bits. For 4 columns => 12 bits total.
+    //    We'll place col0 in bits [24..26], col1 in [27..29], col2 in [30..32], col3 in [33..35].
+    //    i.e. s |= (XCapacity[0] << 24) etc.
+    let xPart = 0;
+    for (let c = 0; c < 4; c++) {
+      // XCapacity[c] in [0..4] => fits in 3 bits
+      xPart |= (XCapacity[c] & 0x7) << (3 * c);
+    }
+    s |= xPart << 24;
+
+    // 4) pos in [0..16] => needs 5 bits.
+    //    We'll place it in bits [36..40].
+    s |= (pos & 0x1f) << 36;
+
+    // Now 's' is a 41-bit integer. 
+    // Convert to a string (e.g. base 36) so we can use as a Map key:
+    return s.toString(36);
   }
 
   // --------------------------

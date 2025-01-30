@@ -84,6 +84,20 @@ export function experimentSolver(inputLines: string[]): string[][] {
     return totalB[i] - totalB[j];
   });
 
+  const BLeft: number[] = [];
+  BLeft[16] = 0;
+  for (let i = 15; i >= 0; i--) {
+    let cnt = BLeft[i + 1];
+    for (let j = 0; j < 4; j++) {
+      if (hasB[rowOrder[i]][j]) {
+        cnt += 1;
+        break;
+      }
+    }
+    BLeft[i] = cnt;
+  }
+
+
   // Generate unique permutations of the 3 non‐X words for each row
   const rowNonXPerms: number[][][] = new Array(16);
   for (let i = 0; i < 16; i++) {
@@ -134,9 +148,11 @@ export function experimentSolver(inputLines: string[]): string[][] {
     return result;
   }
 
-  // "Can we still reach 4 B's in column c?" -> BCount[c] + rowsLeft >= 4
-  function canStillReach4B(c: number, rowsLeft: number): boolean {
-    return BCount[c] + rowsLeft >= 4;
+  /**
+   * Check if each column c can still reach 4 B's
+   */
+  function canStillReach4B(c: number, pos: number): boolean {
+    return BCount[c] + BLeft[pos] >= 4;
   }
 
   function isOverloadedB(c: number): boolean {
@@ -263,13 +279,9 @@ export function experimentSolver(inputLines: string[]): string[][] {
           if (hasB[rIdx][wIndex]) {
             BCount[c]++;
           }
-        }
 
-        // B pruning
-        const rowsLeft = 16 - (pos + 1);
-
-        for (let c = 0; c < 4; c++) {
-          if (!canStillReach4B(c, rowsLeft) || isOverloadedB(c)) {
+          // Prune if we can't reach 4 B's in this column
+          if (!canStillReach4B(c, pos + 1) || isOverloadedB(c)) {
             valid = false;
             break;
           }
