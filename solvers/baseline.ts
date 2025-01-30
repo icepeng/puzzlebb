@@ -84,12 +84,6 @@ export function baselineSolver(inputLines: string[]): string[][] {
     return totalB[i] - totalB[j];
   });
 
-  const lines = rows.map((r) => r.join(" "));
-  const sameLineWithBefore = Array.from(
-    { length: 16 },
-    (_, i) => i > 0 && lines[rowOrder[i]] === lines[rowOrder[i - 1]],
-  );
-
   // Generate unique permutations of the 3 non‐X words for each row
   const rowNonXPerms: number[][][] = new Array(16);
   for (let i = 0; i < 16; i++) {
@@ -177,8 +171,6 @@ export function baselineSolver(inputLines: string[]): string[][] {
     ].join("|");
   }
 
-  let prevColX = -1;
-
   // --------------------------
   //  RECURSIVE BACKTRACK W/ MEMO
   // --------------------------
@@ -205,9 +197,6 @@ export function baselineSolver(inputLines: string[]): string[][] {
     const isBX = xIsBX[rIdx];
 
     // We'll attempt to place the X in each column
-    // if (sameLineWithBefore[pos]) {
-    //   console.log(rIdx, prevColX);
-    // }
     for (let colX = 0; colX < 4; colX++) {
       if (XCapacity[colX] <= 0) continue;
       if (isBX && BXCapacity[colX] <= 0) continue;
@@ -256,7 +245,6 @@ export function baselineSolver(inputLines: string[]): string[][] {
         }
 
         if (valid) {
-          prevColX = colX;
           if (assignRow(pos + 1)) {
             foundSolution = true;
             break;
